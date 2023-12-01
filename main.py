@@ -2,8 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy
 from dataset import generate_data_with_params, generate_data, generate_test_data, pad_values
-from models import *
+# from models import *
 import pickle
+import keras
+from vcann import VAE
+import tensorflow as tf
 
 def main_plotting():
 
@@ -59,7 +62,7 @@ def main_plotting():
 
 def main():
     # Generate Data
-    # Cs, Ss = generate_data(20)
+    # Cs, Ss = generate_data(200)
     #
     # # Save Data
     # input_data = {"Cs": Cs, "Ss": Ss}
@@ -71,81 +74,116 @@ def main():
     Cs = input_data["Cs"]
     Ss = input_data["Ss"]
 
-    Cs = [C[::100] for C in Cs]
-    Ss = [S[::100] for S in Ss]
+    dt_orig = 0.01
+    dts = np.array([(C.shape[0] - 1) * dt_orig / 100.0 for C in Cs])
+    samples = np.arange(100) / 100.0
+    Cs = np.array([np.interp(samples, np.arange(C.shape[0]) / (C.shape[0] - 1), C) for C in Cs])
+    Ss = np.array([np.interp(samples, np.arange(S.shape[0]) / (S.shape[0] - 1), S) for S in Ss])
 
-    print(sum([sum(np.isinf(C)) for C in Cs]))
-    print(sum([sum(np.isinf(S)) for S in Ss]))
 
     # Plot data to verify it looks good
-    dt = 0.01
-    # time = np.arange(Cs[10].shape[0]) * dt
-    # plt.plot(time, Ss[10])
+    # dt = 0.01
+    # i = 10
+    # time = np.arange(Cs[i, :].shape[0]) * dts[i]
+    # # plt.plot(time, Cs[i])
+    # plt.plot(time, Ss[i, :])
     # plt.xlabel("Time [s]")
     # plt.ylabel("Stress [-]")
     # plt.show()
-    # input("Enter to continue")
+
+    ## Preprocess Data
+    Cs_mean = np.mean(Cs)
+    Ss_mean = np.mean(Ss)
+    Cs_std = np.std(Cs)
+    Ss_std = np.std(Ss)
+    # Cs_scaled = (Cs - Cs_mean) / Cs_std
+    Ss_scaled = (Ss) / Ss_std
 
     # Train VAE
-    # vae = train_vae(Cs, Ss)
-    vae = load_model(Cs, Ss)
+    n_tau = 10
+    z_dim = 32
+    seq_len = 100
+    vae = VAE(n_tau, z_dim, seq_len)
+    dts_tiled = dts[:, np.newaxis].repeat(seq_len, axis=1)
+    inputs = np.concatenate([Cs[:, :, np.newaxis], Ss_scaled[:, :, np.newaxis], dts_tiled[:, :, np.newaxis]], axis=2)
+    vae.compile(optimizer=keras.optimizers.Adam())
+    vae.fit(inputs, epochs=1000, batch_size=200)
+    vae.save_weights('./cannvae.h5')
+    # vae.build(input_shape=(None, seq_len, 3))
+    # vae.load_weights('./cannvae.h5')
+
+    ## p(z), p(z|x1), p(z|x2)
+
+    # p(z|x1, x2) = p(z, x1, x2) / p(x1, x2)
+    # = p(z) p(x1|z) p(x2|z) / p(x1)p(x2)
+    # = p(x1, z) p(x2, z) / p(x1)p(x2)p(z)
+    # = p(z|x1) p(z|x2) / p(z)
+    # = N(u1, s1) N(u2, s2) / N(0, 1)
+    # = 1 / sqrt(2 * pi * s1^2 s2^2) * exp(-0.5 * ((x-u1)^2 / s1^2 + (x-u2)^2 / s2^2 - x^2))
+    # = 1 / sqrt(2 * pi * s1^2 s2^2) * exp(-0.5 * (x^2 * (1 / s1^2 + 1 / s2^2 - 1) - x * (2u1 / s1^2 + 2u2 / s2^2) + u1^2 / s1^2 + u2^2 / s2^2)
+    # = 1 / sqrt(2 * pi * s1^2 s2^2) * exp(-0.5 * ((s1^2 + s2^2 - s1^2 s2^2) / (s1^2 s2^2) * (x^2) - 2 * x * (u1s2^2 + u2s1^2) / (s1^2 + s2^2 - s1^2 s2^2)
+    #           +
+
 
     # Reconstruction test on training data
-    max_len = vae.seq_length
     i = 1
-    Cs_train = pad_values(Cs[i][np.newaxis, :, np.newaxis], max_len)
-    Ss_train = pad_values(Ss[i][np.newaxis, :, np.newaxis], max_len) / 1000
+    Ss_predict_scaled = vae.reconstruction_test(inputs[:, :, :])
+    print(Ss_predict_scaled.shape)
 
-    inputs = np.concatenate((Cs_train, Ss_train), axis=-1)
-    print(inputs)
-    print(inputs.shape)
-    Ss_predict = vae.call(inputs)
-    Ss_predict = Ss_predict[0, 0:Cs[i].shape[0], 0]
+    Ss_predict = Ss_std * Ss_predict_scaled
 
     # Plotting
-    time = np.arange(Cs[i].shape[0]) * dt * 100
-    plt.plot(time, Ss[i] / 1000, label='Training Data')
-    plt.plot(time, Ss_predict, label='Model Prediction')
+    time = np.arange(seq_len) * dts[i]
+    plt.plot(time, Ss[i, :], label='Training Data')
+    plt.plot(time, tf.squeeze(Ss_predict[i, :]), label='Model Prediction')
     plt.xlabel('Time')
     plt.ylabel('Stress [kPa]')
     plt.legend()
+    plt.title("Training Set")
+
     plt.show()
 
     # Reconstruction test
     Cs_test, Ss_test = generate_test_data()
-    Cs_test = [C[::100] for C in Cs_test]
-    Ss_test = [S[::100]/1000 for S in Ss_test]
-    max_len = vae.seq_length
-    Cs_test0 = pad_values(Cs_test[0][np.newaxis, :, np.newaxis], max_len)
-    Cs_test1 = pad_values(Cs_test[1][np.newaxis, :, np.newaxis], max_len)
-    Ss_test0 = pad_values(Ss_test[0][np.newaxis, :, np.newaxis], max_len)
 
-    inputs = np.concatenate((Cs_test0, Ss_test0), axis=-1)
-    Ss_predict = vae.call(inputs)
-    Ss_predict = Ss_predict[0, 0:Cs_test[0].shape[0], 0]
+    dt_orig = 0.01
+    dts_test = np.array([(C.shape[0] - 1) * dt_orig / 100.0 for C in Cs_test])
+    samples = np.arange(100) / 100.0
+    Cs_test = np.array([np.interp(samples, np.arange(C.shape[0]) / (C.shape[0] - 1), C) for C in Cs_test])
+    Ss_test = np.array([np.interp(samples, np.arange(S.shape[0]) / (S.shape[0] - 1), S) for S in Ss_test])
+
+    # Cs_test_scaled = (Cs_test - Cs_mean) / Cs_std
+    Ss_test_scaled = (Ss_test) / Ss_std
+    dts_test_tiled = dts_test[:, np.newaxis].repeat(seq_len, axis=1)
+
+    inputs_test = np.concatenate([Cs_test[:, :, np.newaxis], Ss_test_scaled[:, :, np.newaxis],
+                                  dts_test_tiled[:, :, np.newaxis]], axis=2)
+    Ss_predict_test_scaled = vae.reconstruction_test(inputs_test[:, :, :])
+    Ss_predict_test = Ss_std * Ss_predict_test_scaled[0, :]
 
     # Plotting
-    time = np.arange(Cs_test[0].shape[0]) * dt * 100
-    plt.plot(time, Ss_test[0], label='Test Data')
-    plt.plot(time, Ss_predict, label='Model Prediction')
+    time = np.arange(seq_len) * dts_test[0]
+    plt.plot(time, Ss_test[0, :], label='Test Data')
+    plt.plot(time, Ss_predict_test, label='Model Prediction')
     plt.xlabel('Time')
     plt.ylabel('Stress [Pa]')
     plt.legend()
+    plt.title("Test Set")
+
     plt.show()
 
     # Novel Data test
-    latent = vae.encode(inputs)
-    Ss_predict = vae.decode(Cs_test1, latent)
-    Ss_predict = Ss_predict[0, 0:Cs_test[1].shape[0], 0]
+    Ss_predict_novel_scaled = vae.prediction_test(inputs_test)
+    Ss_predict_novel = Ss_std * Ss_predict_novel_scaled[0, :]
 
     # Plotting
-    time = np.arange(Cs_test[1].shape[0]) * dt * 100
-    plt.plot(time, Ss_test[1], label='Test Data')
-    plt.plot(time, Ss_predict, label='Model Prediction')
+    time = np.arange(seq_len) * dts_test[1]
+    plt.plot(time, Ss_test[1, :], label='Test Data')
+    plt.plot(time, Ss_predict_novel, label='Model Prediction')
     plt.xlabel('Time')
     plt.ylabel('Stress [Pa]')
     plt.legend()
+    plt.title("Novel Data")
     plt.show()
-    input("Enter to continue")
 
 main()

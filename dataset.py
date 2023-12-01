@@ -21,7 +21,7 @@ def generate_mat_params():
 def generate_loading_params():
     loading_params = {
         "loading_mode": "uniaxial",
-        "peak_stretch": np.random.uniform(1.2, 1.8),
+        "peak_stretch": np.random.uniform(1.2, 1.5),
 
     }
     return loading_params
@@ -38,7 +38,7 @@ def generate_exp_params():
         experiment_params = {
             "exp_type": "sr",
             "duration": np.random.uniform(50, 100),
-            "rise_time": np.random.uniform(0.8, 2.0),
+            "rise_time": np.random.uniform(1.0, 2.0),
         }
     return experiment_params
 
@@ -54,6 +54,7 @@ def generate_data(n_experiments, dt=0.01):
         C, S = generate_data_with_params(loading_params, exp_params, mat_params, dt)
         Cs.append(np.sqrt(C[:, 0, 0]))
         Ss.append(S[:, 0, 0] - S[:, 1, 1])
+        print(i)
     return Cs, Ss
 
 def generate_test_data(dt=0.01):
@@ -61,6 +62,7 @@ def generate_test_data(dt=0.01):
     Ss = []
     mat_params = generate_mat_params()
     for i in range(2):
+        print(i)
         # Randomize parameters
         loading_params = generate_loading_params()
         exp_params = generate_exp_params()
@@ -218,8 +220,8 @@ def compute_stresses(Cs, mat_params, dt):
 
         new_stress = Sa[0, 0] - Sa[1, 1]
         stress = new_stress
-        if i % 100 == 0:
-            print(i)
+        # if i % 100 == 0:
+        #     print(i)
             # print(np.linalg.det(Fb))
             # print(np.linalg.det(Fd))
 
