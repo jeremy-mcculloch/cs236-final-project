@@ -30,8 +30,8 @@ def generate_loading_params():
     }
     return loading_params
 
-def generate_exp_params():
-    i = np.random.uniform(0, 2)
+def generate_exp_params(i=None):
+    i = np.random.uniform(0, 2) if i is None else i
     if i < 1:
         experiment_params = {
             "exp_type": "cl",
@@ -67,11 +67,13 @@ def generate_test_data():
     all_stresses = np.zeros((2, 100))
     dts = np.zeros((2,))
     mat_params = generate_mat_params()
+    seed = np.random.uniform(0, 2)
+
     for i in range(2):
         print(i)
         # Randomize parameters
         loading_params = generate_loading_params()
-        exp_params = generate_exp_params()
+        exp_params = generate_exp_params(seed if i == 0 else 2 - seed) # Ensure 1st and second exp are different types
         stretches, stresses, dt = generate_data_with_params(loading_params, exp_params, mat_params)
         all_stretches[i, :] = stretches
         all_stresses[i, :] = stresses

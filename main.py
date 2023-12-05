@@ -7,6 +7,7 @@ import pickle
 import keras
 from vcann import VAE
 import tensorflow as tf
+from vcann_baseline import build_inv
 
 def main():
     # # Generate Data
@@ -32,18 +33,20 @@ def main():
 
 
     # # Plot data to verify it looks good
-    i = 2
-    time = np.arange(Cs[i, :].shape[0]) * dts[i]
-    # plt.plot(time, Cs[i])
-    plt.plot(time, Ss[i, :])
-    plt.xlabel("Time [s]")
-    plt.ylabel("Stress [Pa]")
-    plt.show()
-    plt.plot(time, Cs[i, :])
-    plt.xlabel("Time [s]")
-    plt.ylabel("Stretch [-]")
-    plt.show()
-    assert False
+    plot_raw_data = False
+    if plot_raw_data:
+        i = 2
+        time = np.arange(Cs[i, :].shape[0]) * dts[i]
+        # plt.plot(time, Cs[i])
+        plt.plot(time, Ss[i, :])
+        plt.xlabel("Time [s]")
+        plt.ylabel("Stress [Pa]")
+        plt.show()
+        plt.plot(time, Cs[i, :])
+        plt.xlabel("Time [s]")
+        plt.ylabel("Stretch [-]")
+        plt.show()
+
     ## Preprocess Data
     Cs_mean = np.mean(Cs)
     Ss_mean = np.mean(Ss)
@@ -80,58 +83,105 @@ def main():
 
 
     # Reconstruction test on training data
-    i = 1
-    Ss_predict_scaled = vae.reconstruction_test(inputs[:, :, :])
-    print(Ss_predict_scaled.shape)
+    plotting = True
+    if plotting:
+        i = 1
+        Ss_predict_scaled = vae.reconstruction_test(inputs[:, :, :])
+        print(Ss_predict_scaled.shape)
 
-    Ss_predict = Ss_std * Ss_predict_scaled
+        Ss_predict = Ss_std * Ss_predict_scaled
 
-    # Plotting
-    time = np.arange(seq_len) * dts[i]
-    plt.plot(time, Ss[i, :], label='Training Data')
-    plt.plot(time, tf.squeeze(Ss_predict[i, :]), label='Model Prediction')
-    plt.xlabel('Time')
-    plt.ylabel('Stress [kPa]')
-    plt.legend()
-    plt.title("Training Set")
+        # Plotting
+        time = np.arange(seq_len) * dts[i]
+        plt.plot(time, Ss[i, :], label='Training Data')
+        plt.plot(time, tf.squeeze(Ss_predict[i, :]), label='Model Prediction')
+        plt.xlabel('Time')
+        plt.ylabel('Stress [kPa]')
+        plt.legend()
+        plt.title("Training Set")
 
-    plt.show()
+        plt.show()
 
-    # Reconstruction test
-    Cs_test, Ss_test, dts_test = generate_test_data()
+    n_trails = 5
+    all_mse = []
+    for i in range(n_trails):
+        # Reconstruction test
+        Cs_test, Ss_test, dts_test = generate_test_data()
 
-    # Cs_test_scaled = (Cs_test - Cs_mean) / Cs_std
-    Ss_test_scaled = (Ss_test) / Ss_std
-    dts_test_tiled = dts_test[:, np.newaxis].repeat(seq_len, axis=1)
+        # Cs_test_scaled = (Cs_test - Cs_mean) / Cs_std
+        Ss_test_scaled = (Ss_test) / Ss_std
+        dts_test_tiled = dts_test[:, np.newaxis].repeat(seq_len, axis=1)
 
-    inputs_test = np.concatenate([Cs_test[:, :, np.newaxis], Ss_test_scaled[:, :, np.newaxis],
-                                  dts_test_tiled[:, :, np.newaxis]], axis=2)
-    Ss_predict_test_scaled = vae.reconstruction_test(inputs_test[:, :, :])
-    Ss_predict_test = Ss_std * Ss_predict_test_scaled[0, :]
+        inputs_test = np.concatenate([Cs_test[:, :, np.newaxis], Ss_test_scaled[:, :, np.newaxis],
+                                      dts_test_tiled[:, :, np.newaxis]], axis=2)
+        Ss_predict_test_scaled = vae.reconstruction_test(inputs_test[:, :, :])
+        Ss_predict_test = Ss_std * Ss_predict_test_scaled[0, :]
 
-    # Plotting
-    time = np.arange(seq_len) * dts_test[0]
-    plt.plot(time, Ss_test[0, :], label='Test Data')
-    plt.plot(time, Ss_predict_test, label='Model Prediction')
-    plt.xlabel('Time')
-    plt.ylabel('Stress [Pa]')
-    plt.legend()
-    plt.title("Test Set")
+        # Plotting
+        time = np.arange(seq_len) * dts_test[0]
+        plt.plot(time, Ss_test[0, :], label='Test Data')
+        plt.plot(time, Ss_predict_test, label='Model Prediction')
+        plt.xlabel('Time')
+        plt.ylabel('Stress [Pa]')
+        plt.legend()
+        plt.title("Test Set")
 
-    plt.show()
+        plt.show()
 
-    # Novel Data test
-    Ss_predict_novel_scaled = vae.prediction_test(inputs_test)
-    Ss_predict_novel = Ss_std * Ss_predict_novel_scaled[0, :]
+        # Novel Data test
+        Ss_predict_novel_scaled = vae.prediction_test(inputs_test)
+        Ss_predict_novel = Ss_std * Ss_predict_novel_scaled[0, :]
 
-    # Plotting
-    time = np.arange(seq_len) * dts_test[1]
-    plt.plot(time, Ss_test[1, :], label='Test Data')
-    plt.plot(time, Ss_predict_novel, label='Model Prediction')
-    plt.xlabel('Time')
-    plt.ylabel('Stress [Pa]')
-    plt.legend()
-    plt.title("Novel Data")
-    plt.show()
+        # Plotting
+        time = np.arange(seq_len) * dts_test[1]
+        plt.plot(time, Ss_test[1, :], label='Test Data')
+        plt.plot(time, Ss_predict_novel, label='Model Prediction')
+        plt.xlabel('Time')
+        plt.ylabel('Stress [Pa]')
+        plt.legend()
+        plt.title("Novel Data")
+        plt.show()
 
+        novel_data = Ss_test[1, :]
+        print(novel_data[:].shape)
+        print(Ss_predict_novel[:].shape)
+        mse = tf.keras.losses.mean_squared_error(tf.squeeze(novel_data), tf.squeeze(Ss_predict_novel)).numpy()
+        all_mse.append(mse)
+        print("MSE: ", mse)
+    print(all_mse)
+
+    ## Baseline
+    # Train on one test on another
+    n_trials = 0
+    all_mse = []
+    for i in range(n_trials):
+        Cs, Ss, dts = generate_test_data()
+
+        # Train on first, test on second
+        inputs_train = [Cs[0, np.newaxis, :, np.newaxis], np.repeat(dts[0, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+        outputs_train = Ss[0, np.newaxis, :]
+        inputs_test = [Cs[1, np.newaxis, :, np.newaxis], np.repeat(dts[1, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+        outputs_test = Ss[1, np.newaxis, :]
+
+        # Train and predict
+        L2 = 0.00001
+        model = build_inv(5, L2, 0.000001)
+        model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.MeanSquaredError())
+        model.fit(inputs_train, outputs_train, epochs=10000, batch_size=1)
+        output_pred = model.predict(inputs_test)[:, :, 0]
+
+        # Plot results
+        time = np.arange(Cs.shape[1]) * dts[1]
+        plt.plot(time, Ss[1, :], label='Test Data')
+        plt.plot(time, output_pred[0, :], label='Model Prediction')
+        plt.xlabel('Time')
+        plt.ylabel('Stress [Pa]')
+        plt.legend()
+        plt.title("Novel Data")
+        plt.show()
+
+        mse = tf.keras.losses.mean_squared_error(outputs_test, output_pred).numpy()
+        all_mse.append(mse)
+        print("MSE: ", mse)
+    print(all_mse)
 main()
