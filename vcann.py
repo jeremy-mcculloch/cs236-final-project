@@ -170,9 +170,9 @@ def build_encoder(z_dim, seq_len):
     dt = keras.layers.Input(shape=(seq_len, 1), name='time_step')  # input: time step
     input = layers.Concatenate()([stress, stress, dt])
     cnn = keras.Sequential([
-        keras.layers.Conv1D(16, kernel_size=3, activation='relu', input_shape=(seq_len, 3)),
+        keras.layers.Conv1D(4, kernel_size=3, activation='relu', input_shape=(seq_len, 3)),
         keras.layers.MaxPooling1D(pool_size=2),
-        keras.layers.Conv1D(16, kernel_size=3, activation='relu'),
+        keras.layers.Conv1D(4, kernel_size=3, activation='relu'),
         keras.layers.MaxPooling1D(pool_size=2),
         keras.layers.Flatten(),
         keras.layers.Dense(64, activation='relu'),

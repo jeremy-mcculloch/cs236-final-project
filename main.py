@@ -8,94 +8,48 @@ import keras
 from vcann import VAE
 import tensorflow as tf
 
-def main_plotting():
-
-    alpha = 0.005
-    gamma0 = 1e-4
-    mu0 = 20.
-    lambdal = 1.09
-    sigma0 = 25.
-    n = 3.0
-    G0 = 4500.
-    Ginf = 600.
-    eta = 60000.
-    mat_params = (G0, Ginf, eta, gamma0, alpha, sigma0, n, mu0, lambdal)
-
-    # t = 10.
-    # dt = 0.001
-    # stretch_max = 1.5
-    # stretch_rate = 1.
-    #
-    # C, S = generate_uniaxial_stress_relaxation(stretch_rate, stretch_max, t, mat_params, dt)
-    dt = 0.01
-
-    loading_params = {
-        "loading_mode": "uniaxial",
-        "peak_stretch": 1.5,
-
-    }
-    experiment_params = {
-        "exp_type": "cl",
-        "n_cycles": 3,
-        "rise_time": 5.0,
-    }
-    # experiment_params = {
-    #     "exp_type": "fs",
-    #     "duration": 20.0,
-    #     "f_initial": 1.5,
-    #     "f_final": 15.0
-    # }
-    C, S = generate_data_with_params(loading_params, experiment_params, mat_params, dt)
-    # C, S = generate_uniaxial_stress_cycle(stretch_rate, stretch_max, n_cycles, mat_params, dt)
-    axial_stress = S[:, 0, 0] - S[:, 1, 1]
-    stretch = np.sqrt(C[:, 0, 0])
-    ts = np.arange(0, C.shape[0]) * dt
-    # plt.plot(ts, axial_stress)
-    # plt.xlabel("Time [s]")
-    # plt.ylabel("Stress [Pa]")
-    # plt.show()
-
-    plt.plot(ts, stretch)
-    plt.xlabel("Time [s]")
-    plt.ylabel("Stretch [-]")
-    plt.show()
-
 def main():
-    # Generate Data
-    # Cs, Ss = generate_data(200)
+    # # Generate Data
+    # Cs, Ss, dts = generate_data(1000)
     #
     # # Save Data
-    # input_data = {"Cs": Cs, "Ss": Ss}
+    # input_data = {"stretches": Cs, "stresses": Ss, "dts": dts}
     # with open(f'./training_data.pickle', 'wb') as handle:
     #     pickle.dump(input_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+    # Load Data
     with open(f'./training_data.pickle', 'rb') as handle:
         input_data = pickle.load(handle)
-    Cs = input_data["Cs"]
-    Ss = input_data["Ss"]
+    Cs = input_data["stretches"]
+    Ss = input_data["stresses"]
+    dts = input_data["dts"]
 
-    dt_orig = 0.01
-    dts = np.array([(C.shape[0] - 1) * dt_orig / 100.0 for C in Cs])
-    samples = np.arange(100) / 100.0
-    Cs = np.array([np.interp(samples, np.arange(C.shape[0]) / (C.shape[0] - 1), C) for C in Cs])
-    Ss = np.array([np.interp(samples, np.arange(S.shape[0]) / (S.shape[0] - 1), S) for S in Ss])
+    # dt_orig = 0.01
+    # dts = np.array([(C.shape[0] - 1) * dt_orig / 100.0 for C in Cs])
+    # samples = np.arange(100) / 100.0
+    # Cs = np.array([np.interp(samples, np.arange(C.shape[0]) / (C.shape[0] - 1), C) for C in Cs])
+    # Ss = np.array([np.interp(samples, np.arange(S.shape[0]) / (S.shape[0] - 1), S) for S in Ss])
 
 
-    # Plot data to verify it looks good
-    # dt = 0.01
-    # i = 10
-    # time = np.arange(Cs[i, :].shape[0]) * dts[i]
-    # # plt.plot(time, Cs[i])
-    # plt.plot(time, Ss[i, :])
-    # plt.xlabel("Time [s]")
-    # plt.ylabel("Stress [-]")
-    # plt.show()
-
+    # # Plot data to verify it looks good
+    i = 2
+    time = np.arange(Cs[i, :].shape[0]) * dts[i]
+    # plt.plot(time, Cs[i])
+    plt.plot(time, Ss[i, :])
+    plt.xlabel("Time [s]")
+    plt.ylabel("Stress [Pa]")
+    plt.show()
+    plt.plot(time, Cs[i, :])
+    plt.xlabel("Time [s]")
+    plt.ylabel("Stretch [-]")
+    plt.show()
+    assert False
     ## Preprocess Data
     Cs_mean = np.mean(Cs)
     Ss_mean = np.mean(Ss)
     Cs_std = np.std(Cs)
     Ss_std = np.std(Ss)
+    print(Ss.mean(axis=1))
     # Cs_scaled = (Cs - Cs_mean) / Cs_std
     Ss_scaled = (Ss) / Ss_std
 
@@ -106,11 +60,11 @@ def main():
     vae = VAE(n_tau, z_dim, seq_len)
     dts_tiled = dts[:, np.newaxis].repeat(seq_len, axis=1)
     inputs = np.concatenate([Cs[:, :, np.newaxis], Ss_scaled[:, :, np.newaxis], dts_tiled[:, :, np.newaxis]], axis=2)
-    vae.compile(optimizer=keras.optimizers.Adam())
-    vae.fit(inputs, epochs=1000, batch_size=200)
-    vae.save_weights('./cannvae.h5')
-    # vae.build(input_shape=(None, seq_len, 3))
-    # vae.load_weights('./cannvae.h5')
+    # vae.compile(optimizer=keras.optimizers.Adam())
+    # vae.fit(inputs, epochs=10000, batch_size=200)
+    # vae.save_weights('./cannvae.h5')
+    vae.build(input_shape=(None, seq_len, 3))
+    vae.load_weights('./cannvae.h5')
 
     ## p(z), p(z|x1), p(z|x2)
 
@@ -144,13 +98,7 @@ def main():
     plt.show()
 
     # Reconstruction test
-    Cs_test, Ss_test = generate_test_data()
-
-    dt_orig = 0.01
-    dts_test = np.array([(C.shape[0] - 1) * dt_orig / 100.0 for C in Cs_test])
-    samples = np.arange(100) / 100.0
-    Cs_test = np.array([np.interp(samples, np.arange(C.shape[0]) / (C.shape[0] - 1), C) for C in Cs_test])
-    Ss_test = np.array([np.interp(samples, np.arange(S.shape[0]) / (S.shape[0] - 1), S) for S in Ss_test])
+    Cs_test, Ss_test, dts_test = generate_test_data()
 
     # Cs_test_scaled = (Cs_test - Cs_mean) / Cs_std
     Ss_test_scaled = (Ss_test) / Ss_std
