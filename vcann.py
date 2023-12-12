@@ -188,6 +188,7 @@ def build_encoder(z_dim, seq_len):
 class VAE(keras.Model):
     def __init__(self, n_tau, z_dim, seq_len, **kwargs):
         super().__init__(**kwargs)
+        self.seq_len = seq_len
         self.encoder = build_encoder(z_dim, seq_len)
         self.decoder = build_decoder(n_tau, z_dim, seq_len)
         self.total_loss_tracker = keras.metrics.Mean(name="total_loss")
@@ -196,6 +197,13 @@ class VAE(keras.Model):
         )
         self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
         self.test_tracker = keras.metrics.Mean(name="test")
+        self.log_sigma = self.add_weight(
+            shape=(1,),
+            initializer="zeros",
+            trainable=True,
+            name="log_sigma"
+
+        )
 
     @property
     def metrics(self):
@@ -212,14 +220,15 @@ class VAE(keras.Model):
         with tf.GradientTape() as tape:
             z_mean, z_log_var, z = self.encoder([stretch, stress, dt])
             stress_pred = self.decoder([stretch, dt, z])
-            reconstruction_loss = tf.reduce_mean(
+            mse = tf.reduce_mean(
                 tf.reduce_sum(
                     keras.losses.mean_squared_error(stress, stress_pred), axis=1
                 )
             )
+            reconstruction_loss = 0.5 * mse * tf.math.exp(-2 * self.log_sigma) + self.seq_len * self.log_sigma
             kl_loss = -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var))
             kl_loss = tf.reduce_mean(tf.reduce_sum(kl_loss, axis=1))
-            total_loss = reconstruction_loss + kl_loss * 0.1
+            total_loss = reconstruction_loss + kl_loss
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         self.total_loss_tracker.update_state(total_loss)

@@ -83,7 +83,7 @@ def main():
 
 
     # Reconstruction test on training data
-    plotting = True
+    plotting = False
     if plotting:
         i = 1
         Ss_predict_scaled = vae.reconstruction_test(inputs[:, :, :])
@@ -95,15 +95,18 @@ def main():
         time = np.arange(seq_len) * dts[i]
         plt.plot(time, Ss[i, :], label='Training Data')
         plt.plot(time, tf.squeeze(Ss_predict[i, :]), label='Model Prediction')
-        plt.xlabel('Time')
+        plt.xlabel('Time [s]')
         plt.ylabel('Stress [kPa]')
         plt.legend()
         plt.title("Training Set")
 
         plt.show()
 
-    n_trails = 5
-    all_mse = []
+    n_trails = 20
+    all_mse_model = []
+    all_mse_bl = []
+    plot_model = True
+    plot_bl = True
     for i in range(n_trails):
         # Reconstruction test
         Cs_test, Ss_test, dts_test = generate_test_data()
@@ -118,70 +121,127 @@ def main():
         Ss_predict_test = Ss_std * Ss_predict_test_scaled[0, :]
 
         # Plotting
-        time = np.arange(seq_len) * dts_test[0]
-        plt.plot(time, Ss_test[0, :], label='Test Data')
-        plt.plot(time, Ss_predict_test, label='Model Prediction')
-        plt.xlabel('Time')
-        plt.ylabel('Stress [Pa]')
-        plt.legend()
-        plt.title("Test Set")
+        if plot_model:
+            time = np.arange(seq_len) * dts_test[0]
 
-        plt.show()
+            plt.plot(time, Ss_test[0, :], label='Data')
+            plt.plot(time, Ss_predict_test, label='Model Prediction')
+            plt.xlabel('Time [s]')
+            plt.ylabel('Stress [Pa]')
+            plt.legend()
+            plt.title("VAE Reconstruction")
+
+            plt.show()
 
         # Novel Data test
         Ss_predict_novel_scaled = vae.prediction_test(inputs_test)
         Ss_predict_novel = Ss_std * Ss_predict_novel_scaled[0, :]
 
         # Plotting
-        time = np.arange(seq_len) * dts_test[1]
-        plt.plot(time, Ss_test[1, :], label='Test Data')
-        plt.plot(time, Ss_predict_novel, label='Model Prediction')
-        plt.xlabel('Time')
-        plt.ylabel('Stress [Pa]')
-        plt.legend()
-        plt.title("Novel Data")
-        plt.show()
+        if plot_model:
+            time = np.arange(seq_len) * dts_test[1]
+            plt.plot(time, Ss_test[1, :], label='Data')
+            plt.plot(time, Ss_predict_novel, label='Model Prediction')
+            plt.xlabel('Time [s]')
+            plt.ylabel('Stress [Pa]')
+            plt.legend()
+            plt.title("VAE Prediction")
+            plt.show()
 
         novel_data = Ss_test[1, :]
         print(novel_data[:].shape)
         print(Ss_predict_novel[:].shape)
         mse = tf.keras.losses.mean_squared_error(tf.squeeze(novel_data), tf.squeeze(Ss_predict_novel)).numpy()
-        all_mse.append(mse)
+        all_mse_model.append(mse)
         print("MSE: ", mse)
-    print(all_mse)
 
-    ## Baseline
-    # Train on one test on another
-    n_trials = 0
-    all_mse = []
-    for i in range(n_trials):
-        Cs, Ss, dts = generate_test_data()
 
+        ## baseline
         # Train on first, test on second
-        inputs_train = [Cs[0, np.newaxis, :, np.newaxis], np.repeat(dts[0, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
-        outputs_train = Ss[0, np.newaxis, :]
-        inputs_test = [Cs[1, np.newaxis, :, np.newaxis], np.repeat(dts[1, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
-        outputs_test = Ss[1, np.newaxis, :]
+        inputs_train = [Cs_test[0, np.newaxis, :, np.newaxis], np.repeat(dts_test[0, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+        outputs_train = Ss_test[0, np.newaxis, :]
+        inputs_test = [Cs_test[1, np.newaxis, :, np.newaxis], np.repeat(dts_test[1, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+        outputs_test = Ss_test[1, np.newaxis, :]
 
         # Train and predict
         L2 = 0.00001
         model = build_inv(5, L2, 0.000001)
         model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.MeanSquaredError())
         model.fit(inputs_train, outputs_train, epochs=10000, batch_size=1)
-        output_pred = model.predict(inputs_test)[:, :, 0]
+        output_pred_test = model.predict(inputs_test)[:, :, 0]
+        output_pred_train = model.predict(inputs_train)[:, :, 0]
 
-        # Plot results
-        time = np.arange(Cs.shape[1]) * dts[1]
-        plt.plot(time, Ss[1, :], label='Test Data')
-        plt.plot(time, output_pred[0, :], label='Model Prediction')
-        plt.xlabel('Time')
-        plt.ylabel('Stress [Pa]')
-        plt.legend()
-        plt.title("Novel Data")
-        plt.show()
+        if plot_bl:
+            # Plot results
+            time = np.arange(Cs_test.shape[1]) * dts_test[0]
+            plt.plot(time, Ss_test[0, :], label='Data')
+            plt.plot(time, output_pred_train[0, :], label='Model Prediction')
+            plt.xlabel('Time [s]')
+            plt.ylabel('Stress [Pa]')
+            plt.legend()
+            plt.title("Baseline Training Set")
+            plt.show()
 
-        mse = tf.keras.losses.mean_squared_error(outputs_test, output_pred).numpy()
-        all_mse.append(mse)
-        print("MSE: ", mse)
-    print(all_mse)
+            # Plot results
+            time = np.arange(Cs_test.shape[1]) * dts_test[1]
+            plt.plot(time, Ss_test[1, :], label='Data')
+            plt.plot(time, output_pred_test[0, :], label='Model Prediction')
+            plt.xlabel('Time [s]')
+            plt.ylabel('Stress [Pa]')
+            plt.legend()
+            plt.title("Baseline Test Set")
+            plt.show()
+
+        mse = tf.keras.losses.mean_squared_error(outputs_test, output_pred_test).numpy()
+        all_mse_bl.append(mse)
+
+
+
+    print(all_mse_model)
+    print(all_mse_bl)
+    #
+    # ## Baseline
+    # # Train on one test on another
+    # n_trials = 5
+    # for i in range(n_trials):
+    #     Cs, Ss, dts = generate_test_data()
+    #
+    #     # Train on first, test on second
+    #     inputs_train = [Cs[0, np.newaxis, :, np.newaxis], np.repeat(dts[0, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+    #     outputs_train = Ss[0, np.newaxis, :]
+    #     inputs_test = [Cs[1, np.newaxis, :, np.newaxis], np.repeat(dts[1, np.newaxis, np.newaxis, np.newaxis], 100, axis=1)]
+    #     outputs_test = Ss[1, np.newaxis, :]
+    #
+    #     # Train and predict
+    #     L2 = 0.00001
+    #     model = build_inv(5, L2, 0.000001)
+    #     model.compile(optimizer=keras.optimizers.Adam(), loss=keras.losses.MeanSquaredError())
+    #     model.fit(inputs_train, outputs_train, epochs=10000, batch_size=1)
+    #     output_pred_test = model.predict(inputs_test)[:, :, 0]
+    #     output_pred_train = model.predict(inputs_train)[:, :, 0]
+    #
+    #     # Plot results
+    #     time = np.arange(Cs.shape[1]) * dts[0]
+    #     plt.plot(time, Ss[0, :], label='Training Data')
+    #     plt.plot(time, output_pred_train[0, :], label='Model Prediction')
+    #     plt.xlabel('Time')
+    #     plt.ylabel('Stress [Pa]')
+    #     plt.legend()
+    #     plt.title("Training Data Baseline")
+    #     plt.show()
+    #
+    #     # Plot results
+    #     time = np.arange(Cs.shape[1]) * dts[1]
+    #     plt.plot(time, Ss[1, :], label='Test Data')
+    #     plt.plot(time, output_pred_test[0, :], label='Model Prediction')
+    #     plt.xlabel('Time')
+    #     plt.ylabel('Stress [Pa]')
+    #     plt.legend()
+    #     plt.title("Test Data Baseline")
+    #     plt.show()
+    #
+    #     mse = tf.keras.losses.mean_squared_error(outputs_test, output_pred_test).numpy()
+    #     all_mse.append(mse)
+    #     print("MSE: ", mse)
+    # print(all_mse)
 main()
